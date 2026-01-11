@@ -80,6 +80,7 @@ REMOTE_DATA_FILE=/path/to/custom/cache.txt ./rclone-remotes.sh
 
 ## Requirements
 
+- Bash 3.0 or higher (compatible with older macOS systems)
 - `rclone` installed and configured with at least one remote
 - `/utils/rclone-safemount.sh` (optional, only needed for mount functionality)
 

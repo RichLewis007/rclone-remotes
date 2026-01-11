@@ -111,7 +111,7 @@ pick_option() {
   fi
   
   # Try fzf first (best experience)
-  if command -v fzf >/dev/null 2>&1; then
+  if [[ "${DEBUG_UI_NO_FZF:-}" != "1" ]] && command -v fzf >/dev/null 2>&1; then
     local fzf_header="$header"
     local fzf_prompt="$prompt_line"
     if [[ -z "$fzf_prompt" ]]; then
@@ -127,7 +127,7 @@ pick_option() {
   fi
   
   # Try gum second (modern alternative)
-  if command -v gum >/dev/null 2>&1; then
+  if [[ "${DEBUG_UI_NO_GUM:-}" != "1" ]] && command -v gum >/dev/null 2>&1; then
     printf '%s\n' "${items[@]}" | gum choose --prompt="$prompt"
     return $?
   fi
@@ -166,10 +166,13 @@ SAFEMOUNT_SCRIPT="${SAFEMOUNT_SCRIPT:-/utils/rclone-safemount.sh}"
 # 3 = sort by USED space
 SORT_MODE=0
 
-# Associative arrays holding cached about info
-declare -A ABOUT_TOTAL
-declare -A ABOUT_USED
-declare -A ABOUT_FREE
+# Parallel arrays holding cached about info (Bash 3 compatible)
+# These arrays are indexed in parallel: ABOUT_REMOTE_NAMES[i] corresponds to
+# ABOUT_TOTALS[i], ABOUT_USED_VALUES[i], and ABOUT_FREE_VALUES[i]
+ABOUT_REMOTE_NAMES=()
+ABOUT_TOTALS=()
+ABOUT_USED_VALUES=()
+ABOUT_FREE_VALUES=()
 
 ###############################################################################
 # Helpers
@@ -216,11 +219,56 @@ size_to_bytes() {
   awk -v v="$num" -v f="$factor" 'BEGIN { printf "%.0f\n", v * f }'
 }
 
-# Load remote data file into associative arrays
+# Find index of remote name in parallel arrays (returns -1 if not found)
+find_remote_index() {
+  local remote="$1"
+  local i
+  for ((i = 0; i < ${#ABOUT_REMOTE_NAMES[@]}; i++)); do
+    if [[ "${ABOUT_REMOTE_NAMES[$i]}" == "$remote" ]]; then
+      echo "$i"
+      return 0
+    fi
+  done
+  echo -1
+  return 1
+}
+
+# Get cached total value for a remote (returns empty string if not found)
+get_remote_total() {
+  local remote="$1"
+  local idx
+  idx=$(find_remote_index "$remote")
+  if [[ "$idx" -ge 0 ]] && [[ "$idx" -lt ${#ABOUT_TOTALS[@]} ]]; then
+    echo "${ABOUT_TOTALS[$idx]}"
+  fi
+}
+
+# Get cached used value for a remote (returns empty string if not found)
+get_remote_used() {
+  local remote="$1"
+  local idx
+  idx=$(find_remote_index "$remote")
+  if [[ "$idx" -ge 0 ]] && [[ "$idx" -lt ${#ABOUT_USED_VALUES[@]} ]]; then
+    echo "${ABOUT_USED_VALUES[$idx]}"
+  fi
+}
+
+# Get cached free value for a remote (returns empty string if not found)
+get_remote_free() {
+  local remote="$1"
+  local idx
+  idx=$(find_remote_index "$remote")
+  if [[ "$idx" -ge 0 ]] && [[ "$idx" -lt ${#ABOUT_FREE_VALUES[@]} ]]; then
+    echo "${ABOUT_FREE_VALUES[$idx]}"
+  fi
+}
+
+# Load remote data file into parallel arrays (Bash 3 compatible)
 load_remote_data() {
-  ABOUT_TOTAL=()
-  ABOUT_USED=()
-  ABOUT_FREE=()
+  ABOUT_REMOTE_NAMES=()
+  ABOUT_TOTALS=()
+  ABOUT_USED_VALUES=()
+  ABOUT_FREE_VALUES=()
 
   if [[ ! -f "$REMOTE_DATA_FILE" ]]; then
     return 0
@@ -230,9 +278,10 @@ load_remote_data() {
     # Skip empty lines and comment lines (starting with #)
     [[ -n "$name" ]] || continue
     [[ "$name" =~ ^[[:space:]]*# ]] && continue
-    ABOUT_TOTAL["$name"]="$total"
-    ABOUT_USED["$name"]="$used"
-    ABOUT_FREE["$name"]="$free"
+    ABOUT_REMOTE_NAMES+=("$name")
+    ABOUT_TOTALS+=("$total")
+    ABOUT_USED_VALUES+=("$used")
+    ABOUT_FREE_VALUES+=("$free")
   done < "$REMOTE_DATA_FILE"
 }
 
@@ -335,7 +384,10 @@ action_tree_on_folder() {
   echo
   log_info "Fetching top-level directories from ${remote}: ..."
 
-  mapfile -t dirs < <(rclone lsd "${remote}:" 2>/dev/null | awk '{print $NF}')
+  dirs=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && dirs+=("$line")
+  done < <(rclone lsd "${remote}:" 2>/dev/null | awk '{print $NF}')
 
   if [[ "${#dirs[@]}" -eq 0 ]]; then
     log_warn "No top-level directories found on ${remote}:."
@@ -537,7 +589,10 @@ main() {
     # Load cached about data (from previous runs or background updates)
     load_remote_data
 
-    mapfile -t remotes_raw < <(rclone listremotes 2>/dev/null || true)
+    remotes_raw=()
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && remotes_raw+=("$line")
+    done < <(rclone listremotes 2>/dev/null || true)
 
     if [[ "${#remotes_raw[@]}" -eq 0 ]]; then
       log_warn "No rclone remotes found."
@@ -563,14 +618,17 @@ main() {
     else
       # Sort by FREE / TOTAL / USED (descending)
       if ((${#unsorted[@]} > 0)); then
-        mapfile -t remotes < <(
+        remotes=()
+        while IFS= read -r line; do
+          [[ -n "$line" ]] && remotes+=("$line")
+        done < <(
           for remote in "${unsorted[@]}"; do
             val_str=""
             case "$SORT_MODE" in
-              1) val_str="${ABOUT_FREE[$remote]:-}"  ;; # FREE
-              2) val_str="${ABOUT_TOTAL[$remote]:-}" ;; # DRIVE (Total)
-              3) val_str="${ABOUT_USED[$remote]:-}"  ;; # USED
-              *) val_str="${ABOUT_FREE[$remote]:-}"  ;;
+              1) val_str="$(get_remote_free "$remote")"  ;; # FREE
+              2) val_str="$(get_remote_total "$remote")" ;; # DRIVE (Total)
+              3) val_str="$(get_remote_used "$remote")"  ;; # USED
+              *) val_str="$(get_remote_free "$remote")"  ;;
             esac
             bytes="$(size_to_bytes "$val_str")"
             printf '%016d %s\n' "$bytes" "$remote"
@@ -609,15 +667,15 @@ main() {
       case "$SORT_MODE" in
         2)
           info_label="Total"
-          info_str="${ABOUT_TOTAL[$remote]:-}"
+          info_str="$(get_remote_total "$remote")"
           ;;
         3)
           info_label="Used"
-          info_str="${ABOUT_USED[$remote]:-}"
+          info_str="$(get_remote_used "$remote")"
           ;;
         *)
           info_label="Free"
-          info_str="${ABOUT_FREE[$remote]:-}"
+          info_str="$(get_remote_free "$remote")"
           ;;
       esac
 
