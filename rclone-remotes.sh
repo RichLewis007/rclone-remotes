@@ -440,6 +440,19 @@ action_dedupe() {
   local remote="$1"
   log_info "Remove Google Drive duplicates for remote: ${remote}:"
   echo
+  
+  # Check if remote is a Google Drive
+  local remote_type
+  remote_type=$(rclone config show "$remote" 2>/dev/null | awk '/^type = / {print $3; exit}')
+  
+  if [[ "$remote_type" != "drive" ]]; then
+    log_error "This cloud drive type cannot have duplicate names in the same folder."
+    log_error "The dedupe operation is only available for Google Drive remotes."
+    echo
+    pause_any_key
+    return 1
+  fi
+  
   log_warn "Running 'rclone dedupe ${remote}:'"
   log_warn "This may modify or remove duplicate files depending on dedupe mode."
   echo
