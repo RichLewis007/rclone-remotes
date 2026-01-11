@@ -2,4 +2,4 @@
 local/
 
 # Cache file for remote space information
-remotes.txt
+rclone-remotes.txt

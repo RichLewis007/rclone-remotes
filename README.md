@@ -1,6 +1,8 @@
 # rclone-remotes
 
-Interactive rclone remote browser with a text-based user interface.
+Author: Rich Lewis - GitHub: RichLewis007
+
+Interactive rclone remote browser with an easy to use TUI text-based menu user interface.
 
 ## Features
 
@@ -60,7 +62,7 @@ The script uses a cache file to store space information for each remote, which s
 
 ### Cache File Location
 
-- **Default**: `remotes.txt` in the script's directory
+- **Default**: `rclone-remotes.txt` in the script's directory
 - **Custom**: Set the `REMOTE_DATA_FILE` environment variable to specify a different location
 
 Example:
@@ -115,7 +117,7 @@ DEBUG_UI_NO_FZF=1 DEBUG_UI_NO_GUM=1 ./rclone-remotes.sh
 
 The script supports the following environment variables for customization:
 
-- **`REMOTE_DATA_FILE`** - Custom path for the cache file (default: `./remotes.txt`)
+- **`REMOTE_DATA_FILE`** - Custom path for the cache file (default: `./rclone-remotes.txt`)
 
   ```bash
   REMOTE_DATA_FILE=/custom/path/cache.txt ./rclone-remotes.sh
@@ -169,9 +171,9 @@ chmod +x rclone-remotes.sh
 ## File Structure
 
 - `rclone-remotes.sh` - Main script
-- `remotes.txt` - Cache file (created automatically, excluded from git)
+- `rclone-remotes.txt` - Cache file (created automatically, excluded from git, safe to delete)
 - `.gitignore` - Excludes cache file from version control
 
 ## Author
 
-Rich Lewis - GitHub: @RichLewis007
+Author: Rich Lewis - GitHub: RichLewis007

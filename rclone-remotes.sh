@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # rclone-remotes.sh
-# Author: Rich Lewis - GitHub: @RichLewis007
+# Author: Rich Lewis - GitHub: RichLewis007
 #
 # Interactive rclone remote browser with text-based user interface
 #
@@ -25,7 +25,7 @@
 #   - Quit - Exit the program
 #
 # CACHING SYSTEM:
-#   The script uses a cache file (remotes.txt by default) to store space information
+#   The script uses a cache file (rclone-remotes.txt by default) to store space information
 #   for each remote. This allows the menu to display quickly without waiting for
 #   all `rclone about` calls to complete.
 #
@@ -35,6 +35,7 @@
 #     the background updater refreshes the cache in the background
 #   - Cache Format: Pipe-delimited: remote_name|Total_string|Used_string|Free_string
 #   - Custom Location: Set REMOTE_DATA_FILE environment variable
+#   - The cache file includes header comments explaining its purpose
 #
 # UI TOOL SUPPORT:
 #   The script supports multiple UI tools with automatic fallback:
@@ -48,7 +49,7 @@
 #   - Type-to-search filtering
 #
 # ENVIRONMENT VARIABLES:
-#   REMOTE_DATA_FILE - Custom location for cache file (default: ./remotes.txt)
+#   REMOTE_DATA_FILE - Custom location for cache file (default: ./rclone-remotes.txt)
 #   SAFEMOUNT_SCRIPT - Path to mount script (default: /utils/rclone-safemount.sh)
 #   DEBUG_UI_NO_FZF - Set to 1 to simulate fzf not being found
 #   DEBUG_UI_NO_GUM - Set to 1 to simulate gum not being found
@@ -98,11 +99,28 @@ pick_option() {
     return 1
   fi
   
+  # Split into header and prompt_line on first newline
+  local header prompt_line
+  header="${prompt%%$'\n'*}"
+  if [[ "$prompt" == *$'\n'* ]]; then
+    prompt_line="${prompt#*$'\n'}"
+    # Remove any remaining newlines from prompt_line (keep only first line after header)
+    prompt_line="${prompt_line%%$'\n'*}"
+  else
+    prompt_line="$prompt"
+  fi
+  
   # Try fzf first (best experience)
   if command -v fzf >/dev/null 2>&1; then
+    local fzf_header="$header"
+    local fzf_prompt="$prompt_line"
+    if [[ -z "$fzf_prompt" ]]; then
+      fzf_prompt="$fzf_header"
+    fi
+    
     printf '%s\n' "${items[@]}" | fzf \
-      --prompt="$prompt " \
-      --header="" \
+      --header="$fzf_header" \
+      --prompt="${fzf_prompt} " \
       --layout=reverse-list \
       --cycle
     return $?
@@ -134,7 +152,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # Persistent data file for rclone about info for all remotes
 # Format: remote_name|Total_string|Used_string|Free_string
-REMOTE_DATA_FILE="${REMOTE_DATA_FILE:-"$SCRIPT_DIR/remotes.txt"}"
+REMOTE_DATA_FILE="${REMOTE_DATA_FILE:-"$SCRIPT_DIR/rclone-remotes.txt"}"
 
 ###############################################################################
 # Config
@@ -209,7 +227,9 @@ load_remote_data() {
   fi
 
   while IFS='|' read -r name total used free; do
+    # Skip empty lines and comment lines (starting with #)
     [[ -n "$name" ]] || continue
+    [[ "$name" =~ ^[[:space:]]*# ]] && continue
     ABOUT_TOTAL["$name"]="$total"
     ABOUT_USED["$name"]="$used"
     ABOUT_FREE["$name"]="$free"
@@ -224,6 +244,12 @@ update_remote_data() {
   mkdir -p "$(dirname "$REMOTE_DATA_FILE")" 2>/dev/null || true
   local tmp="${REMOTE_DATA_FILE}.tmp"
   : > "$tmp"
+
+  # Add header comment explaining the file
+  printf '# Cache file for rclone-remotes.sh\n' >> "$tmp"
+  printf '# This file stores cached space information for rclone remotes.\n' >> "$tmp"
+  printf '# It is safe to delete this file - it will be recreated on the next program run.\n' >> "$tmp"
+  printf '# Format: remote_name|Total_string|Used_string|Free_string\n' >> "$tmp"
 
   local remote about_output total used free free_raw num remainder truncated_num
 
@@ -553,7 +579,7 @@ main() {
       fi
     fi
 
-    # First run: start background updater to refresh remotes.txt
+    # First run: start background updater to refresh rclone-remotes.txt
     if (( first_run )); then
       update_remote_data "${remotes[@]}" &
       first_run=0
@@ -609,7 +635,7 @@ main() {
     local refresh_index=$remote_count
     
     # Add Refresh
-    menu_entries+=( "$(printf '%2d) %s' $((remote_count + 1)) "Refresh remote list")" )
+    menu_entries+=( "$(printf '%2d) %s' $((remote_count + 1)) "REFRESH remotes list")" )
     
     # Add sort options
     local sort_free_index=$((remote_count + 1))
@@ -629,9 +655,9 @@ main() {
     local sort_label
     case "$SORT_MODE" in
       0) sort_label="NAME"  ;;
-      1) sort_label="FREE"  ;;
+      1) sort_label="FREE space"  ;;
       2) sort_label="DRIVE" ;;
-      3) sort_label="USED"  ;;
+      3) sort_label="USED size"  ;;
       *) sort_label="NAME"  ;;
     esac
 
