@@ -60,7 +60,8 @@
 #
 # USAGE:
 #   ./rclone-remotes.sh
-#   DEBUG_UI_NO_FZF=1 ./rclone-remotes.sh  # Test with gum/basic menu only
+#   DEBUG_UI_NO_FZF=1 ./rclone-remotes.sh  # Test with gum/basic menu only (no export needed)
+#   export DEBUG_UI_NO_FZF=1; ./rclone-remotes.sh  # Alternative: export then run separately
 
 set -euo pipefail
 
@@ -118,25 +119,87 @@ pick_option() {
       fzf_prompt="$fzf_header"
     fi
     
+    # Calculate height based on terminal size and number of items
+    local term_height
+    term_height=$(tput lines 2>/dev/null || echo "24")
+    local item_count=${#items[@]}
+    # Calculate height: items + 3 lines for header/status/padding
+    # This shows all items without large gaps
+    local fzf_height=$((item_count + 3))
+    # Cap at terminal height minus 1 to avoid overflow
+    if [[ $fzf_height -gt $((term_height - 1)) ]]; then
+      fzf_height=$((term_height - 1))
+    fi
+    # Ensure minimum height of 5
+    if [[ $fzf_height -lt 5 ]]; then
+      fzf_height=5
+    fi
+    
     printf '%s\n' "${items[@]}" | fzf \
       --header="$fzf_header" \
       --prompt="${fzf_prompt} " \
       --layout=reverse-list \
+      --height="$fzf_height" \
       --cycle
     return $?
   fi
   
   # Try gum second (modern alternative)
   if [[ "${DEBUG_UI_NO_GUM:-}" != "1" ]] && command -v gum >/dev/null 2>&1; then
-    printf '%s\n' "${items[@]}" | gum choose --prompt="$prompt"
+    # Calculate height based on terminal size (leave room for header and padding)
+    local term_height
+    term_height=$(tput lines 2>/dev/null || echo "24")
+    local item_count=${#items[@]}
+    # Use terminal height minus 4 (for header/padding), but at least 5, max term_height-2
+    local gum_height=$((term_height - 4))
+    if [[ $gum_height -lt 5 ]]; then
+      gum_height=5
+    fi
+    if [[ $gum_height -gt $item_count ]]; then
+      gum_height=$item_count
+    fi
+    
+    printf '%s\n' "${items[@]}" | gum choose --header="$header" --height="$gum_height" --cursor=">"
     return $?
   fi
   
   # Fallback to basic select menu
+  # Remove numbers from items since select adds its own numbers
+  # But keep "0) Quit" items as-is and handle "0" input specially
+  local select_items=()
+  local quit_index=-1
+  local item i=0
+  for item in "${items[@]}"; do
+    # Check if this is "0) Quit" or similar
+    if [[ "$item" =~ ^[[:space:]]*0\)[[:space:]]+Quit ]]; then
+      # Keep "0) Quit" as-is and remember its index
+      select_items+=( "$item" )
+      quit_index=$i
+    else
+      # Remove leading number and ") " pattern (e.g., " 1) " or "1) ")
+      select_items+=( "${item#*[0-9]) }" )
+    fi
+    ((i++))
+  done
+  
   echo "$prompt" >&2
   echo "" >&2
-  select choice in "${items[@]}"; do
+  select choice in "${select_items[@]}"; do
+    # Handle "0" input specially for Quit option
+    if [[ "$REPLY" == "0" ]] && [[ $quit_index -ge 0 ]]; then
+      echo "${items[$quit_index]}"
+      return 0
+    fi
     if [[ -n "$choice" ]]; then
+      # Find the original item that matches this choice
+      local i
+      for ((i = 0; i < ${#select_items[@]}; i++)); do
+        if [[ "${select_items[$i]}" == "$choice" ]]; then
+          echo "${items[$i]}"
+          return 0
+        fi
+      done
+      # Fallback: return the choice as-is
       echo "$choice"
       return 0
     fi

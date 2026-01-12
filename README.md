@@ -101,7 +101,7 @@ The script supports multiple UI tools with automatic fallback:
 
 ### Debug Mode
 
-You can simulate different tool availability scenarios using environment variables:
+You can simulate different tool availability scenarios using environment variables. The inline syntax (no `export` needed) passes the variable directly to the command:
 
 ```bash
 # Simulate fzf not being found (will use gum or basic menu)
@@ -112,6 +112,13 @@ DEBUG_UI_NO_GUM=1 ./rclone-remotes.sh
 
 # Simulate neither being found (will use basic menu only)
 DEBUG_UI_NO_FZF=1 DEBUG_UI_NO_GUM=1 ./rclone-remotes.sh
+```
+
+Alternatively, you can use `export` to set the variable in your shell session:
+
+```bash
+export DEBUG_UI_NO_FZF=1
+./rclone-remotes.sh
 ```
 
 ## Environment Variables
